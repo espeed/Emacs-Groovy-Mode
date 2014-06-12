@@ -8,10 +8,17 @@
 ;;;
 ;;; Version: 201311291207
 ;;;
-;;;; NB Version number is date and time yyyymmddhhMM in GMT (aka UTC).
+;;; NB Version number is date and time yyyymmddhhMM in GMT (aka UTC).
 ;;;
+;;; James Thornton   james@jamesthornton.com
+;;; 2014-06-12       adds groovy-eval-definition,  maps to C-M-x 
+;;;                  adds groovy-eval-buffer,      maps to C-c C-k
+;;;                  
 ;;; Inferior Groovy Mode - groovy process in a buffer.
-;;;                      adapted from cmuscheme.el and inf-haskell.el
+;;;                        adapted from cmuscheme.el, 
+;;;                                     inf-haskell.el,
+;;;                                     scala-mode-inf.el,
+;;;                                     ensime-inf.el
 ;;;
 ;;; Usage:
 ;;;
@@ -45,6 +52,62 @@
 ;;; (3) execute
 ;;;      M-x run-groovy
 ;;;
+
+
+;;
+;; groovy-eval-definition derived from ensime-inf.el
+;; Original Copyright and Licensing notice below
+;;
+;; Copyright (C) 2010 Aemon Cannon
+;;
+;; Derived from scala-mode-inf.el
+;; Original Copyright and Licensing notice below
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;; Copyright (C) 2009 Scala Dev Team at EPFL
+;; Authors: See AUTHORS file
+;; Keywords: scala languages oop
+
+;;; License
+
+;; SCALA LICENSE
+;;
+;; Copyright (c) 2002-2010 EPFL, Lausanne, unless otherwise specified.
+;; All rights reserved.
+;;
+;; This software was developed by the Programming Methods Laboratory of the
+;; Swiss Federal Institute of Technology (EPFL), Lausanne, Switzerland.
+;;
+;; Permission to use, copy, modify, and distribute this software in source
+;; or binary form for any purpose with or without fee is hereby granted,
+;; provided that the following conditions are met:
+;;
+;;    1. Redistributions of source code must retain the above copyright
+;;       notice, this list of conditions and the following disclaimer.
+;;
+;;    2. Redistributions in binary form must reproduce the above copyright
+;;       notice, this list of conditions and the following disclaimer in the
+;;       documentation and/or other materials provided with the distribution.
+;;
+;;    3. Neither the name of the EPFL nor the names of its contributors
+;;       may be used to endorse or promote products derived from this
+;;       software without specific prior written permission.
+;;
+;;
+;; THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+;; ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+;; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+;; ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+;; FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+;; DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+;; SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+;; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+;; LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+;; OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+;; SUCH DAMAGE.
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 
 (require 'comint)
 (require 'compile)
@@ -88,7 +151,9 @@
 ;;;###autoload
 (defun inf-groovy-keys ()
   "Set local key defs for inf-groovy in groovy-mode"
-  (define-key groovy-mode-map "\M-\C-x" 'groovy-send-definition)
+;  (define-key groovy-mode-map "\M-\C-x" 'groovy-send-definition)
+  (define-key groovy-mode-map "\M-\C-x" 'groovy-eval-definition)
+  (define-key groovy-mode-map "\C-c\C-k" 'groovy-eval-buffer)
   (define-key groovy-mode-map "\C-x\C-e" 'groovy-send-last-sexp)
   ;;(define-key groovy-mode-map "\C-c\M-b" 'groovy-send-block)
   ;;(define-key groovy-mode-map "\C-c\C-b" 'groovy-send-block-and-go)
@@ -273,6 +338,56 @@ of `groovy-program-name').  Runs the hooks `inferior-groovy-mode-hook'
       (c-beginning-of-defun)
       (groovy-send-region (point) end))))
 
+
+(defun groovy-eval-definition ()
+  "Send the current 'definition' to the Groovy process.
+
+   This function's idea of a definition is the block of text ending
+   in the current line (or the first non-empty line going
+   backwards), and begins in the first line that is not empty and
+   does not start with whitespace or '{'.
+
+   For example:
+
+   println( \"aja\")
+   println( \"hola\" )
+
+   if the cursor is somewhere in the second print statement, the
+   interpreter should output 'hola'.
+
+   In the following case, if the cursor is in the second line, then
+   the complete function definition will be send to the interpreter:
+
+   def foo =
+     1 + 2
+   "
+  (interactive)
+  (save-excursion
+    ;; find the first non-empty line
+    (beginning-of-line)
+    (while (and (not (= (point) (point-min)))
+                (looking-at "\\s-*$"))
+      (next-line -1))
+    (end-of-line)
+    (let ((end (point)))
+      ;; now we need to find the start
+      (beginning-of-line)
+      (while (and (not (= (point) (point-min)))
+                  (looking-at (mapconcat '(lambda (x) x)
+                                         '("^$"       ; empty lines
+                                           "^\\s-+"   ; empty lines or lines that start with whitespace
+                                           "^\\s-*}") ; lines that start with a '}'
+                                         "\\|")))
+        (next-line -1)
+        (beginning-of-line))
+      (message "region %s %s" (point) end)
+      (groovy-send-region (point) end))))
+
+(defun groovy-eval-buffer ()
+  "Send whole buffer to Groovy process."
+  (interactive)
+  (groovy-send-region (point-min) (point-max)))
+
 (defun groovy-send-last-sexp ()
   "Send the previous sexp to the inferior Groovy process."
   (interactive)
@@ -288,6 +403,10 @@ of `groovy-program-name').  Runs the hooks `inferior-groovy-mode-hook'
 ;;     (let ((end (point)))
 ;;       (groovy-beginning-of-block)
 ;;       (groovy-send-region (point) end))))
+
+
+
+
 
 (defun switch-to-groovy (eob-p)
   "Switch to the groovy process buffer.
